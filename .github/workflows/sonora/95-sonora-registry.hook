@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Refreshing the Sonora managed-package registry...
+When = PostTransaction
+Exec = /usr/bin/python3 -c "import os,subprocess; p='/usr/lib/sonora/sonora-registry'; subprocess.run([p,'refresh'],check=True) if os.path.isfile(p) else None"

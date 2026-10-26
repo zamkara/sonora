@@ -1,0 +1,152 @@
+diff --git i/crates/sonora/src/main.rs w/crates/sonora/src/main.rs
+index 0d86415cb4deadd7140daa2d4caf3cf452f3cddf..2a9a74589ef9521679a1320211b5bb86b1e915e9 100644
+--- i/crates/sonora/src/main.rs
++++ w/crates/sonora/src/main.rs
+@@ -39,6 +39,14 @@ const FIRST_SIZE: Size<Pixels> = size(px(920.), px(640.));
+ const OPEN_COALESCE: Duration = Duration::from_millis(250);
+ 
+ fn main() {
++    if std::env::args().any(|arg| arg == "--arch-build-info") {
++        println!(
++            "sonora={} updater={}",
++            env!("CARGO_PKG_VERSION"),
++            option_env!("SONORA_ARCH_UPDATE_HELPER").unwrap_or("upstream")
++        );
++        return;
++    }
+     memory::tune();
+     if let Some(code) = webview::probed() {
+         exit(code);
+diff --git i/crates/state/src/updates.rs w/crates/state/src/updates.rs
+index 619c6794fd76ed4ccd997a73dd6234abe8eb3dee..701897acf41448293af141523f7d6431a286e181 100644
+--- i/crates/state/src/updates.rs
++++ w/crates/state/src/updates.rs
+@@ -16,14 +16,14 @@ const INSTALLER: &str = match cfg!(target_arch = "aarch64") {
+ const SUMS: &str = "SHA256SUMS";
+ const UNINSTALLER: &str = "unins000.exe";
+ const RUNNING: &str = env!("CARGO_PKG_VERSION");
+-const INSTALLABLE: bool = cfg!(target_os = "windows");
++const INSTALLABLE: bool = cfg!(target_os = "windows") || arch_helper().is_some();
+ const AGENT: &str = concat!(
+     "sonora/",
+     env!("CARGO_PKG_VERSION"),
+     " (https://github.com/sonorahq/sonora)"
+ );
+ 
+-#[derive(Clone, Debug, PartialEq, Eq)]
++#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+ pub struct Release {
+     pub version: String,
+     pub page: String,
+@@ -86,6 +86,10 @@ impl Updates {
+     }
+ 
+     pub fn install(&mut self, cx: &mut Context<Self>) {
++        if let Some(helper) = arch_helper() {
++            self.install_arch(helper, cx);
++            return;
++        }
+         let Some(release) = self.offered().cloned() else {
+             return;
+         };
+@@ -120,6 +124,55 @@ impl Updates {
+         }));
+     }
+ 
++    /// Uses the same package updater as `sonora -U`, outside the UI thread.
++    fn install_arch(&mut self, helper: &'static str, cx: &mut Context<Self>) {
++        if self.offered().is_none() {
++            return;
++        }
++        self.state = UpdateState::Fetching;
++        cx.notify();
++        let io = self.io.clone();
++        self.task = Some(cx.spawn(async move |this, cx| {
++            let installed = join(io.spawn(async move {
++                tokio::task::spawn_blocking(move || {
++                    let result = Command::new(helper)
++                        .args([
++                            "install",
++                            "--gui",
++                            "--parent-pid",
++                            &std::process::id().to_string(),
++                        ])
++                        .output()
++                        .context("cannot start the native arch updater")?;
++                    if !result.status.success() {
++                        anyhow::bail!(
++                            "native arch updater failed: {}",
++                            String::from_utf8_lossy(&result.stderr)
++                        );
++                    }
++                    Ok(())
++                })
++                .await
++                .context("the native arch updater worker failed")?
++            }))
++            .await;
++            match installed {
++                Ok(()) => {
++                    cx.update(|cx| cx.quit());
++                }
++                Err(error) => {
++                    log::warn!("updates: cannot install the native arch package: {error:#}");
++                    this.update(cx, |this, cx| {
++                        this.task = None;
++                        this.state = UpdateState::Failed;
++                        cx.notify();
++                    })
++                    .ok();
++                }
++            }
++        }));
++    }
++
+     fn look(&mut self, cx: &mut Context<Self>) {
+         if !self.settings.read(cx).check_updates() {
+             return;
+@@ -159,6 +212,24 @@ struct Asset {
+ }
+ 
+ async fn latest(http: &reqwest::Client) -> Result<Option<Release>> {
++    if let Some(helper) = arch_helper() {
++        return tokio::task::spawn_blocking(move || {
++            let result = Command::new(helper)
++                .args(["check", "--json"])
++                .output()
++                .context("cannot check native arch updates")?;
++            if !result.status.success() {
++                anyhow::bail!(
++                    "native arch update check failed: {}",
++                    String::from_utf8_lossy(&result.stderr)
++                );
++            }
++            serde_json::from_slice(&result.stdout)
++                .context("cannot read the native arch update offer")
++        })
++        .await
++        .context("the native arch update check worker failed")?;
++    }
+     let published: Published = http
+         .get(LATEST)
+         .header("User-Agent", AGENT)
+@@ -246,7 +317,19 @@ fn launch(installer: &Path) -> Result<()> {
+     Ok(())
+ }
+ 
++/// Compile-time opt-in; ordinary upstream builds retain their own updater behavior.
++const fn arch_helper() -> Option<&'static str> {
++    if cfg!(target_os = "linux") {
++        option_env!("SONORA_ARCH_UPDATE_HELPER")
++    } else {
++        None
++    }
++}
++
+ fn installed() -> bool {
++    if let Some(helper) = arch_helper() {
++        return Path::new(helper).is_file();
++    }
+     std::env::current_exe()
+         .ok()
+         .and_then(|exe| Some(exe.parent()?.join(UNINSTALLER)))

@@ -1,0 +1,2 @@
+# Prevent system/AUR upgraders from replacing the managed Sonora package.
+IgnorePkg = sonora sonora-bin sonora-git

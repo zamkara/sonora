@@ -1,0 +1,110 @@
+name: Sonora
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: sonora-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: 1. Validate and check upstream
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      upstream: ${{ steps.plan.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test builder, shared updater, blocker and layout
+        run: |
+          python3 -m unittest discover -s .github/workflows/sonora/tests -v
+          python3 -m compileall -q .github/workflows/sonora
+          bash -n .github/workflows/sonora/container-build.sh
+          bash -n .github/workflows/sonora/install.sh.in
+          bash -n .github/workflows/sonora/sonora.install
+      - id: plan
+        if: github.event_name != 'pull_request'
+        name: Pin latest stable upstream release and skip unchanged builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BUILDER: ${{ github.sha }}
+        run: python3 .github/workflows/sonora/prepare.py --output .github/workflows/.build/inputs/plan.json --repository "$REPOSITORY" --builder "$BUILDER" --epoch "$(git show -s --format=%ct HEAD)"
+      - if: steps.plan.outputs.build == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: pinned-inputs
+          path: .github/workflows/.build/inputs/
+          retention-days: 2
+          if-no-files-found: error
+  build:
+    name: 2. Compile and verify Arch package
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: pinned-inputs
+          path: .github/workflows/.build/inputs
+      - name: Restore pinned Rust build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            .github/workflows/.build/cargo-home
+            .github/workflows/.build/rustup-home
+            .github/workflows/.build/target
+          key: sonora-v1-${{ runner.arch }}-${{ needs.prepare.outputs.upstream }}-${{ github.sha }}
+          restore-keys: |
+            sonora-v1-${{ runner.arch }}-${{ needs.prepare.outputs.upstream }}-
+            sonora-v1-${{ runner.arch }}-
+      - name: Build from source, install, verify updater isolation, and uninstall
+        run: |
+          mkdir -p .github/workflows/.build/{cargo-home,rustup-home,target,release}
+          docker run --rm \
+            -e BUILDER_UID="$(id -u)" \
+            -e SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            -v "$PWD:/repo:ro" \
+            -v "$PWD/.github/workflows/.build/inputs:/inputs:ro" \
+            -v "$PWD/.github/workflows/.build/cargo-home:/cargo" \
+            -v "$PWD/.github/workflows/.build/rustup-home:/rustup" \
+            -v "$PWD/.github/workflows/.build/target:/target" \
+            -v "$PWD/.github/workflows/.build/release:/output" \
+            archlinux:base bash /repo/.github/workflows/sonora/container-build.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: verified-sonora
+          path: .github/workflows/.build/release/
+          retention-days: 7
+          if-no-files-found: error
+  publish:
+    name: 3. Publish verified release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: verified-sonora
+          path: .github/workflows/.build/release
+      - name: Publish by numeric release ID after all checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: python3 .github/workflows/sonora/publish.py .github/workflows/.build/release --repository "$REPOSITORY" --revision "$REVISION"

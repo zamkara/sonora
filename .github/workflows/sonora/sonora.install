@@ -1,0 +1,18 @@
+post_install() {
+  /usr/lib/sonora/sonora-registry configure
+}
+post_upgrade() {
+  /usr/lib/sonora/sonora-registry configure
+}
+pre_remove() {
+  /usr/bin/python3 - <<'PY'
+from pathlib import Path
+import os,shutil
+path=Path('/etc/pacman.conf')
+remove={'Include = /etc/pacman.d/sonora-managed.options','Include = /etc/pacman.d/sonora-managed.conf'}
+text='\n'.join(line for line in path.read_text().splitlines() if line.strip() not in remove)+'\n'
+tmp=path.with_name('pacman.conf.sonora-tmp');tmp.write_text(text);shutil.copymode(path,tmp);os.replace(tmp,path)
+for name in ('sonora-managed.db','sonora-managed.lock'):
+    (Path('/var/lib/pacman/sync')/name).unlink(missing_ok=True)
+PY
+}

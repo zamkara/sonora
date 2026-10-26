@@ -1,0 +1,7 @@
+#!/usr/bin/python3
+"""Preserve Sonora arguments while exposing the native package updater as -U."""
+import os
+import sys
+if sys.argv[1:]==['-U']:
+    os.execv('/usr/lib/sonora/sonora-update',['sonora-update','install'])
+os.execv('/usr/lib/sonora/sonora',['sonora',*sys.argv[1:]])

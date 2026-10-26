@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo='@REPOSITORY@'
+tag='@TAG@'
+[[ $EUID -ne 0 ]] || { echo 'Run as your regular user; pacman will request sudo.' >&2; exit 1; }
+[[ $(uname -m) == x86_64 ]] || { echo 'This package supports x86_64 Arch Linux.' >&2; exit 1; }
+for tool in curl python3; do
+  command -v "$tool" >/dev/null || { echo "Install python and curl first: sudo pacman -S --needed python curl" >&2; exit 1; }
+done
+[[ -r /dev/tty ]] || { echo 'An interactive terminal is required.' >&2; exit 1; }
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+base="https://github.com/$repo/releases/download/$tag"
+curl -fLsS --proto '=https' --proto-redir '=https' --retry 3 "$base/SHA256SUMS" -o "$work/SHA256SUMS"
+curl -fLsS --proto '=https' --proto-redir '=https' --retry 3 "$base/catalog.json" -o "$work/catalog.json"
+python3 - "$work" "$base" "$repo" "$tag" <<'PY'
+import hashlib,json,pathlib,re,subprocess,sys
+root=pathlib.Path(sys.argv[1]);base,repo,tag=sys.argv[2:];sums={}
+for line in (root/'SHA256SUMS').read_text().splitlines():
+ m=re.fullmatch(r'([a-f0-9]{64})  ([A-Za-z0-9_.+\-]+)',line)
+ if not m or m[2] in sums:raise SystemExit('Invalid checksum manifest')
+ sums[m[2]]=m[1]
+def verify(path):
+ h=hashlib.sha256()
+ with path.open('rb') as f:
+  for data in iter(lambda:f.read(1024*1024),b''):h.update(data)
+ if sums.get(path.name)!=h.hexdigest():raise SystemExit('Checksum mismatch: '+path.name)
+verify(root/'catalog.json');catalog=json.loads((root/'catalog.json').read_text())
+if catalog['repository']!=repo or catalog['tag']!=tag or catalog['architecture']!='x86_64':raise SystemExit('Release identity mismatch')
+name=catalog['package']
+if not re.fullmatch(r'sonora-[0-9][A-Za-z0-9_.+\-]*-x86_64\.pkg\.tar\.zst',name):raise SystemExit('Invalid package asset')
+subprocess.run(['curl','-fLsS','--proto','=https','--proto-redir','=https','--retry','3',base+'/'+name,'-o',str(root/name)],check=True)
+verify(root/name)
+metadata=subprocess.check_output(['/usr/bin/pacman','-Qp',str(root/name)],text=True).strip().split()
+if metadata!=['sonora',catalog['package_version']]:raise SystemExit('Package metadata mismatch')
+print(name+': verified',flush=True)
+# Resolve required system dependencies without refreshing only part of the system.
+deps=['glibc','gcc-libs','alsa-lib','dbus','fontconfig','freetype2','hicolor-icon-theme','libxcb','libx11','libxcursor','libxi','libxkbcommon','libxkbcommon-x11','sqlite','vulkan-icd-loader','wayland','python','curl','sudo','polkit','ca-certificates']
+missing=subprocess.run(['/usr/bin/pacman','-T',*deps],capture_output=True,text=True)
+if missing.returncode not in (0,127):raise SystemExit('Cannot resolve system dependencies')
+with open('/dev/tty','rb',buffering=0) as tty:
+ if missing.stdout.strip():subprocess.run(['sudo','--','/usr/bin/pacman','-S','--needed','--',*missing.stdout.splitlines()],stdin=tty,check=True)
+ subprocess.run(['sudo','--','/usr/bin/pacman','-U','--',str(root/name)],stdin=tty,check=True)
+PY
+printf '%s\n' 'Sonora installed. Open Sonora normally; update in the app or run sonora -U.'

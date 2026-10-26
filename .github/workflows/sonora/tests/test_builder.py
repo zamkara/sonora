@@ -35,7 +35,7 @@ class PlanningTests(unittest.TestCase):
 
     def test_unchanged_complete_release_skips_before_checkout(self):
         names=['catalog.json','SHA256SUMS','install.sh','PKGBUILD','SRCINFO','UPSTREAM_CHANGELOG.md',
-               'sonora-source.tar.zst','native-updater.patch','sonora-0.44.2-1-x86_64.pkg.tar.zst']
+               'sonora-source.tar.zst','native-updater.patch','upstream.json','sonora-0.44.2-1-x86_64.pkg.tar.zst']
         upstream={'tag_name':'v0.44.2','html_url':'https://github.com/sonorahq/sonora/releases/tag/v0.44.2','body':'exact original notes'}
         existing={'assets':[{'name':n} for n in names]}
         with tempfile.TemporaryDirectory() as d,patch.object(prepare,'gh_json',side_effect=[upstream,{'sha':'b'*40},existing]),patch('sys.stdout',new=io.StringIO()):
@@ -53,6 +53,8 @@ class PlanningTests(unittest.TestCase):
             self.assertIn('pkgname=sonora\n',text)
             self.assertIn('#commit='+'b'*40,text)
             self.assertIn('build --release --locked --package sonora',text)
+            self.assertIn("'!lto'",text)
+            self.assertIn('-C link-arg=-fuse-ld=mold',text)
             self.assertIn('conflicts=(\'sonora-bin\' \'sonora-git\')',text)
             self.assertIn('SONORA_ARCH_UPDATE_HELPER=/usr/lib/sonora/sonora-update',text)
             subprocess.run(['bash','-n',str(work/'PKGBUILD')],check=True)

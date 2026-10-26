@@ -59,7 +59,8 @@ jobs:
           name: pinned-inputs
           path: .github/workflows/.build/inputs
       - name: Restore pinned Rust build cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: rust-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             .github/workflows/.build/cargo-home
@@ -82,6 +83,15 @@ jobs:
             -v "$PWD/.github/workflows/.build/target:/target" \
             -v "$PWD/.github/workflows/.build/release:/output" \
             archlinux:base bash /repo/.github/workflows/sonora/container-build.sh
+      - name: Preserve compiler cache even when a later check fails
+        if: always() && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            .github/workflows/.build/cargo-home
+            .github/workflows/.build/rustup-home
+            .github/workflows/.build/target
+          key: sonora-v1-${{ runner.arch }}-${{ needs.prepare.outputs.upstream }}-${{ github.sha }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: verified-sonora

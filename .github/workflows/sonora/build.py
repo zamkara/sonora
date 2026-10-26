@@ -50,7 +50,7 @@ optdepends=('vulkan-intel: Intel Vulkan driver' 'vulkan-radeon: AMD Vulkan drive
             'pulseaudio-alsa: audio through PulseAudio' 'webkit2gtk-4.1: browser-based sign-in')
 conflicts=('sonora-bin' 'sonora-git')
 install='sonora.install'
-options=('!strip' '!debug')
+options=('!strip' '!debug' '!lto')
 source=({' '.join(map(quote,sources))})
 sha256sums=({' '.join(map(quote,sums))})
 prepare() {{
@@ -66,6 +66,7 @@ build() {{
   rustup toolchain install "$toolchain" --profile minimal --component rustfmt
   export SONORA_ARCH_UPDATE_HELPER=/usr/lib/sonora/sonora-update
   export CARGO_TARGET_DIR="${{CARGO_TARGET_DIR:-$PWD/target}}"
+  export RUSTFLAGS="${{RUSTFLAGS:+$RUSTFLAGS }}-C link-arg=-fuse-ld=mold"
   export CARGO_BUILD_JOBS=2
   export CARGO_PROFILE_RELEASE_LTO=false
   export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8

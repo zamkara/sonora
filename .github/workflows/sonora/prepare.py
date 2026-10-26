@@ -13,7 +13,7 @@ def complete(release):
     if not release or release.get('draft') or release.get('prerelease'):return False
     names={a['name'] for a in release.get('assets',[])}
     return {'catalog.json','SHA256SUMS','install.sh','PKGBUILD','SRCINFO','UPSTREAM_CHANGELOG.md',
-            'sonora-source.tar.zst','native-updater.patch'}<=names and any(
+            'sonora-source.tar.zst','native-updater.patch','upstream.json'}<=names and any(
                 n.startswith('sonora-') and n.endswith('-x86_64.pkg.tar.zst') for n in names)
 
 

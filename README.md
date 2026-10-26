@@ -83,7 +83,7 @@ The build:
 
 Only Linux x86_64 is currently supported. Compilation uses two jobs and eight codegen
 units without cross-crate LTO to keep the GPUI build within hosted-runner memory.
-Rust dependencies and targets are cached. The first build can take significantly
+Rust dependencies and targets are cached, including after failed checks. makepkg's GCC LTO is explicitly disabled for the mixed Rust/C build; Rust links through mold. The first build can take significantly
 longer than later builds; a build has a two-hour limit.
 
 Every published release is non-prerelease and includes a one-line installer.
@@ -128,3 +128,5 @@ the root builder license does not relicense Sonora.
 ```sh
 python3 -m unittest discover -s .github/workflows/sonora/tests -v
 ```
+
+Build reference: [Arch Rust packaging guidelines](https://wiki.archlinux.org/title/Rust_package_guidelines).

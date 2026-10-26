@@ -144,6 +144,19 @@ class RegistryTests(unittest.TestCase):
         self.assertIn('IgnorePkg = sonora sonora-bin sonora-git',(HELPERS/'sonora-managed.options').read_text())
 
 
+class PublicationTests(unittest.TestCase):
+    def test_superseded_builder_never_mutates_a_release(self):
+        catalog={'repository':'zamkara/sonora','builder':'a'*40,'tag':'sha-'+'b'*64}
+        with patch.object(publish,'validate',return_value=catalog),patch.object(publish,'current_builder',return_value='c'*40),patch.object(publish,'gh_json') as api,patch.object(publish.subprocess,'run') as command,patch('sys.stdout',new=io.StringIO()):
+            publish.publish(Path('/unused'),'zamkara/sonora','a'*40)
+            api.assert_not_called();command.assert_not_called()
+
+    def test_current_builder_uses_actual_default_branch(self):
+        with patch.object(publish,'gh_json',side_effect=[{'default_branch':'main'},{'sha':'a'*40}]) as api:
+            self.assertEqual(publish.current_builder('zamkara/sonora'),'a'*40)
+            self.assertEqual(api.call_args.args,('api','repos/zamkara/sonora/commits/main'))
+
+
 class LayoutTests(unittest.TestCase):
     def test_clean_root_and_no_vendored_source(self):
         self.assertEqual({p.name for p in ROOT.iterdir() if p.name!='.git'},{'README.md','LICENSE','.github'})

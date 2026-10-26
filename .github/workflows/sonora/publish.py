@@ -28,9 +28,23 @@ def validate(root):
     return catalog
 
 
+def current_builder(repo):
+    info=gh_json('api',f'repos/{repo}')
+    if not info:raise RuntimeError('Repository metadata is unavailable')
+    head=gh_json('api',f'repos/{repo}/commits/{quote(info["default_branch"],safe="")}')
+    if not head:raise RuntimeError('Default branch commit is unavailable')
+    return head['sha']
+
+
 def publish(root, repo, revision):
     catalog=validate(root);repo=repository(repo);tag=catalog['tag']
     if catalog['repository']!=repo or catalog['builder']!=revision:raise ValueError('Release identity mismatch')
+    # GITHUB_TOKEN cannot tag an older commit whose workflow differs from HEAD.
+    # Never retarget a built artifact to an unbuilt revision to work around that.
+    if current_builder(repo)!=revision:
+        print('Publication skipped: a newer builder commit superseded this run.')
+        return
+
     # Draft tag endpoints can return 404 until publication. Resolve drafts from
     # the release list and use the immutable numeric release ID for every mutation.
     pages=gh_json('api','--paginate','--slurp',f'repos/{repo}/releases?per_page=100')
@@ -62,10 +76,16 @@ Corresponding modified source: `sonora-source.tar.zst`.
     lines=[intro+upstream]
     note.write_text('\n'.join(lines)+'\n')
     if not release:
-        release=gh_json('api','--method','POST',f'repos/{repo}/releases','--input','-',
-                        input=json.dumps({'tag_name':tag,'target_commitish':revision,
-                          'draft':True,'prerelease':False,'name':'Sonora '+catalog['version']+' · '+catalog['digest'][:12],
-                          'body':note.read_text()}))
+        try:
+            release=gh_json('api','--method','POST',f'repos/{repo}/releases','--input','-',
+                            input=json.dumps({'tag_name':tag,'target_commitish':revision,
+                              'draft':True,'prerelease':False,'name':'Sonora '+catalog['version']+' · '+catalog['digest'][:12],
+                              'body':note.read_text()}))
+        except RuntimeError as error:
+            if 'HTTP 403' in str(error) and current_builder(repo)!=revision:
+                print('Publication skipped: the builder advanced during release creation.')
+                return
+            raise
     if not release or not isinstance(release.get('id'),int):
         raise RuntimeError('GitHub did not return a release ID')
     release_id=release['id']

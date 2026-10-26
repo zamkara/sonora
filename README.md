@@ -86,6 +86,10 @@ units without cross-crate LTO to keep the GPUI build within hosted-runner memory
 Rust dependencies and targets are cached, including after failed checks. makepkg's GCC LTO is explicitly disabled for the mixed Rust/C build; Rust links through mold. The first build can take significantly
 longer than later builds; a build has a two-hour limit.
 
+A run superseded by a newer builder commit skips publication instead of tagging
+an older workflow revision with extra token permissions. The newest queued run
+uses the verified compiler cache.
+
 Every published release is non-prerelease and includes a one-line installer.
 Drafts are temporary upload staging only; publication uses numeric release IDs
 and verifies every uploaded asset before publishing. Upstream release notes are

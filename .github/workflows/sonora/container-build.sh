@@ -15,7 +15,7 @@ runuser -u builder -- env CARGO_HOME=/cargo RUSTUP_HOME=/rustup CARGO_TARGET_DIR
   python /repo/.github/workflows/sonora/build.py /build
 pacman -U --noconfirm /build/release/sonora-*.pkg.tar.zst
 sonora --arch-build-info
-python -m py_compile /usr/lib/sonora/sonora-update /usr/lib/sonora/sonora-registry /usr/bin/sonora
+PYTHONPYCACHEPREFIX=/tmp/sonora-bytecode python -m py_compile /usr/lib/sonora/sonora-update /usr/lib/sonora/sonora-registry /usr/bin/sonora
 ldd /usr/lib/sonora/sonora > /build/sonora.ldd
 if grep -q 'not found' /build/sonora.ldd; then cat /build/sonora.ldd; exit 1; fi
 desktop-file-validate /usr/share/applications/sonora.desktop

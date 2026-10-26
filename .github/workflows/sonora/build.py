@@ -86,10 +86,17 @@ package() {{
   install -Dm644 "$srcdir/build.json" "$pkgdir/usr/share/sonora/build.json"
   install -Dm644 "$source/assets/linux/sonora.desktop" "$pkgdir/usr/share/applications/sonora.desktop"
   install -dm755 "$pkgdir/usr/share/icons"
-  cp -a "$source/assets/linux/icons/." "$pkgdir/usr/share/icons/"
+  cp -r --preserve=mode,timestamps "$source/assets/linux/icons/." "$pkgdir/usr/share/icons/"
   install -Dm644 "$source/assets/linux/sonora.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/sonora.svg"
   install -Dm644 "$source/COPYING" "$pkgdir/usr/share/licenses/sonora/COPYING"
   install -Dm644 "$source/THIRD-PARTY.md" "$pkgdir/usr/share/licenses/sonora/THIRD-PARTY.md"
+  install -Dm644 "$source/assets/fonts/LICENSE.txt" "$pkgdir/usr/share/licenses/sonora/LICENSE.Inter"
+  install -Dm644 "$source/assets/icons/LICENSE" "$pkgdir/usr/share/licenses/sonora/icons/LICENSE"
+  local license_file pack
+  for license_file in "$source"/assets/icons/*/LICENSE; do
+    pack=$(basename "$(dirname "$license_file")")
+    install -Dm644 "$license_file" "$pkgdir/usr/share/licenses/sonora/icons/LICENSE.$pack"
+  done
   install -Dm644 "$srcdir/LICENSE.Almatera" "$pkgdir/usr/share/licenses/sonora/LICENSE.Almatera"
   install -Dm644 "$srcdir/sonora-managed.conf" "$pkgdir/etc/pacman.d/sonora-managed.conf"
   install -Dm644 "$srcdir/sonora-managed.options" "$pkgdir/etc/pacman.d/sonora-managed.options"

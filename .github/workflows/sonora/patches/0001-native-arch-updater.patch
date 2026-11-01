@@ -1,46 +1,65 @@
 diff --git i/crates/sonora/src/main.rs w/crates/sonora/src/main.rs
-index 0d86415cb4deadd7140daa2d4caf3cf452f3cddf..2a9a74589ef9521679a1320211b5bb86b1e915e9 100644
+index ae545aa75e539abb3df7cfe9f791d01db2efe9b3..87a3a67277c4181611350cec8ecf3e702a7854b8 100644
 --- i/crates/sonora/src/main.rs
 +++ w/crates/sonora/src/main.rs
-@@ -39,6 +39,14 @@ const FIRST_SIZE: Size<Pixels> = size(px(920.), px(640.));
+@@ -41,6 +41,14 @@ const FIRST_SIZE: Size<Pixels> = size(px(920.), px(640.));
  const OPEN_COALESCE: Duration = Duration::from_millis(250);
  
- fn main() {
+ fn main() -> ExitCode {
 +    if std::env::args().any(|arg| arg == "--arch-build-info") {
 +        println!(
 +            "sonora={} updater={}",
 +            env!("CARGO_PKG_VERSION"),
 +            option_env!("SONORA_ARCH_UPDATE_HELPER").unwrap_or("upstream")
 +        );
-+        return;
++        return ExitCode::SUCCESS;
 +    }
      memory::tune();
      if let Some(code) = webview::probed() {
          exit(code);
-diff --git i/crates/state/src/updates.rs w/crates/state/src/updates.rs
-index 619c6794fd76ed4ccd997a73dd6234abe8eb3dee..701897acf41448293af141523f7d6431a286e181 100644
---- i/crates/state/src/updates.rs
-+++ w/crates/state/src/updates.rs
-@@ -16,14 +16,14 @@ const INSTALLER: &str = match cfg!(target_arch = "aarch64") {
- const SUMS: &str = "SHA256SUMS";
- const UNINSTALLER: &str = "unins000.exe";
- const RUNNING: &str = env!("CARGO_PKG_VERSION");
--const INSTALLABLE: bool = cfg!(target_os = "windows");
-+const INSTALLABLE: bool = cfg!(target_os = "windows") || arch_helper().is_some();
- const AGENT: &str = concat!(
-     "sonora/",
-     env!("CARGO_PKG_VERSION"),
-     " (https://github.com/sonorahq/sonora)"
- );
+diff --git i/crates/state/src/updates/mod.rs w/crates/state/src/updates/mod.rs
+index 6cbddcd99b3318c0d0ff59fbeb98c1ac3e1764d8..96d1fcae4df89de8352d645bbd15ab44d997e5d4 100644
+--- i/crates/state/src/updates/mod.rs
++++ w/crates/state/src/updates/mod.rs
+@@ -1,7 +1,8 @@
+ mod install;
+ 
+ use std::io::Write as _;
+-use std::path::PathBuf;
++use std::path::{Path, PathBuf};
++use std::process::Command;
+ 
+ use anyhow::{Context as _, Result};
+ use gpui::{Context, Entity, SharedString, Subscription, Task};
+@@ -85,12 +86,14 @@ pub fn updates_itself() -> bool {
+     Install::current().updates_itself()
+ }
  
 -#[derive(Clone, Debug, PartialEq, Eq)]
 +#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
  pub struct Release {
      pub version: String,
      pub page: String,
-@@ -86,6 +86,10 @@ impl Updates {
+     /// The asset this install updates from, when the release carries one.
++    #[serde(default)]
+     package: Option<Asset>,
++    #[serde(default)]
+     sums: Option<String>,
+ }
+ 
+@@ -152,6 +155,9 @@ impl Updates {
      }
  
+     pub fn installable(&self) -> bool {
++        if let Some(helper) = arch_helper() {
++            return Path::new(helper).is_file() && self.offered().is_some();
++        }
+         updates_itself()
+             && self
+                 .offered()
+@@ -168,6 +174,10 @@ impl Updates {
+     /// place, then quits so the new build can start. A failure leaves the running build as it
+     /// was and shows the failure instead of the offer.
      pub fn install(&mut self, cx: &mut Context<Self>) {
 +        if let Some(helper) = arch_helper() {
 +            self.install_arch(helper, cx);
@@ -49,7 +68,7 @@ index 619c6794fd76ed4ccd997a73dd6234abe8eb3dee..701897acf41448293af141523f7d6431
          let Some(release) = self.offered().cloned() else {
              return;
          };
-@@ -120,6 +124,55 @@ impl Updates {
+@@ -205,6 +215,55 @@ impl Updates {
          }));
      }
  
@@ -102,13 +121,13 @@ index 619c6794fd76ed4ccd997a73dd6234abe8eb3dee..701897acf41448293af141523f7d6431
 +        }));
 +    }
 +
-     fn look(&mut self, cx: &mut Context<Self>) {
-         if !self.settings.read(cx).check_updates() {
-             return;
-@@ -159,6 +212,24 @@ struct Asset {
- }
+     /// Asks GitHub for the newest build on the chosen channel. `asked` marks a look the user
+     /// started by switching channels, which runs even with update checks turned off. A copy a
+     /// package manager installed follows its own build's channel, and a nightly one never looks.
+@@ -255,6 +314,25 @@ struct Asset {
  
- async fn latest(http: &reqwest::Client) -> Result<Option<Release>> {
+ /// The newest build on `channel`, or `None` when the running build should stay.
+ async fn latest(http: &reqwest::Client, channel: Channel) -> Result<Option<Release>> {
 +    if let Some(helper) = arch_helper() {
 +        return tokio::task::spawn_blocking(move || {
 +            let result = Command::new(helper)
@@ -127,13 +146,15 @@ index 619c6794fd76ed4ccd997a73dd6234abe8eb3dee..701897acf41448293af141523f7d6431
 +        .await
 +        .context("the native arch update check worker failed")?;
 +    }
++
      let published: Published = http
-         .get(LATEST)
+         .get(channel.url())
          .header("User-Agent", AGENT)
-@@ -246,7 +317,19 @@ fn launch(installer: &Path) -> Result<()> {
-     Ok(())
+@@ -378,3 +456,12 @@ fn ordered(version: &str) -> Option<(u64, u64, u64, u64)> {
+         .unwrap_or(0);
+     Some((parts.next()??, parts.next()??, parts.next()??, date))
  }
- 
++
 +/// Compile-time opt-in; ordinary upstream builds retain their own updater behavior.
 +const fn arch_helper() -> Option<&'static str> {
 +    if cfg!(target_os = "linux") {
@@ -142,11 +163,3 @@ index 619c6794fd76ed4ccd997a73dd6234abe8eb3dee..701897acf41448293af141523f7d6431
 +        None
 +    }
 +}
-+
- fn installed() -> bool {
-+    if let Some(helper) = arch_helper() {
-+        return Path::new(helper).is_file();
-+    }
-     std::env::current_exe()
-         .ok()
-         .and_then(|exe| Some(exe.parent()?.join(UNINSTALLER)))

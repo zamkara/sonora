@@ -1,8 +1,8 @@
-diff --git i/crates/sonora/src/main.rs w/crates/sonora/src/main.rs
-index ae545aa75e539abb3df7cfe9f791d01db2efe9b3..87a3a67277c4181611350cec8ecf3e702a7854b8 100644
---- i/crates/sonora/src/main.rs
-+++ w/crates/sonora/src/main.rs
-@@ -41,6 +41,14 @@ const FIRST_SIZE: Size<Pixels> = size(px(920.), px(640.));
+diff --git c/crates/sonora/src/main.rs i/crates/sonora/src/main.rs
+index b6a845f9..386262f0 100644
+--- c/crates/sonora/src/main.rs
++++ i/crates/sonora/src/main.rs
+@@ -48,6 +48,14 @@ const FIRST_SIZE: Size<Pixels> = size(px(920.), px(640.));
  const OPEN_COALESCE: Duration = Duration::from_millis(250);
  
  fn main() -> ExitCode {
@@ -17,21 +17,21 @@ index ae545aa75e539abb3df7cfe9f791d01db2efe9b3..87a3a67277c4181611350cec8ecf3e70
      memory::tune();
      if let Some(code) = webview::probed() {
          exit(code);
-diff --git i/crates/state/src/updates/mod.rs w/crates/state/src/updates/mod.rs
-index 6cbddcd99b3318c0d0ff59fbeb98c1ac3e1764d8..96d1fcae4df89de8352d645bbd15ab44d997e5d4 100644
---- i/crates/state/src/updates/mod.rs
-+++ w/crates/state/src/updates/mod.rs
-@@ -1,7 +1,8 @@
- mod install;
+diff --git c/crates/state/src/updates/mod.rs i/crates/state/src/updates/mod.rs
+index 1e47e54a..1dbce55d 100644
+--- c/crates/state/src/updates/mod.rs
++++ i/crates/state/src/updates/mod.rs
+@@ -3,7 +3,8 @@ mod install;
+ mod staged;
  
  use std::io::Write as _;
 -use std::path::PathBuf;
 +use std::path::{Path, PathBuf};
 +use std::process::Command;
+ use std::time::Duration;
  
  use anyhow::{Context as _, Result};
- use gpui::{Context, Entity, SharedString, Subscription, Task};
-@@ -85,12 +86,14 @@ pub fn updates_itself() -> bool {
+@@ -108,12 +109,14 @@ pub fn updates_itself() -> bool {
      Install::current().updates_itself()
  }
  
@@ -47,17 +47,17 @@ index 6cbddcd99b3318c0d0ff59fbeb98c1ac3e1764d8..96d1fcae4df89de8352d645bbd15ab44
      sums: Option<String>,
  }
  
-@@ -152,6 +155,9 @@ impl Updates {
+@@ -204,6 +207,9 @@ impl Updates {
      }
  
      pub fn installable(&self) -> bool {
 +        if let Some(helper) = arch_helper() {
 +            return Path::new(helper).is_file() && self.offered().is_some();
 +        }
-         updates_itself()
-             && self
-                 .offered()
-@@ -168,6 +174,10 @@ impl Updates {
+         self.offered().is_some_and(Release::installable)
+     }
+ 
+@@ -220,6 +226,10 @@ impl Updates {
      /// place, then quits so the new build can start. A failure leaves the running build as it
      /// was and shows the failure instead of the offer.
      pub fn install(&mut self, cx: &mut Context<Self>) {
@@ -68,8 +68,8 @@ index 6cbddcd99b3318c0d0ff59fbeb98c1ac3e1764d8..96d1fcae4df89de8352d645bbd15ab44
          let Some(release) = self.offered().cloned() else {
              return;
          };
-@@ -205,6 +215,55 @@ impl Updates {
-         }));
+@@ -281,6 +291,55 @@ impl Updates {
+         }
      }
  
 +    /// Uses the same package updater as `sonora -U`, outside the UI thread.
@@ -124,7 +124,7 @@ index 6cbddcd99b3318c0d0ff59fbeb98c1ac3e1764d8..96d1fcae4df89de8352d645bbd15ab44
      /// Asks GitHub for the newest build on the chosen channel. `asked` marks a look the user
      /// started by switching channels, which runs even with update checks turned off. A copy a
      /// package manager installed follows its own build's channel, and a nightly one never looks.
-@@ -255,6 +314,25 @@ struct Asset {
+@@ -389,6 +448,25 @@ struct Asset {
  
  /// The newest build on `channel`, or `None` when the running build should stay.
  async fn latest(http: &reqwest::Client, channel: Channel) -> Result<Option<Release>> {
@@ -150,7 +150,7 @@ index 6cbddcd99b3318c0d0ff59fbeb98c1ac3e1764d8..96d1fcae4df89de8352d645bbd15ab44
      let published: Published = http
          .get(channel.url())
          .header("User-Agent", AGENT)
-@@ -378,3 +456,12 @@ fn ordered(version: &str) -> Option<(u64, u64, u64, u64)> {
+@@ -569,3 +647,12 @@ fn ordered(version: &str) -> Option<(u64, u64, u64, u64)> {
          .unwrap_or(0);
      Some((parts.next()??, parts.next()??, parts.next()??, date))
  }
